@@ -1,0 +1,8 @@
+[characterize-config]
+
+[db-config]
+dbname = avischk
+user = avischk
+host =
+password =
+
