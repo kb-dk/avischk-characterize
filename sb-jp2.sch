@@ -36,13 +36,13 @@
             <s:assert test="codeBlockWidth = '64'">2B-9: Code block width different from 64.</s:assert>
             <s:assert test="codeBlockHeight = '64'">2B-9: Code block height different from 64.</s:assert>
             <s:assert test="layers = '16'">2B-6: Number of quality layers different from 16.</s:assert>
-            <s:assert test="levels = '6'">2B-5: Number of decomposition levels different from 6.</s:assert>
+	    <!--            <s:assert test="levels = '6'">2B-5: Number of decomposition levels different from 6.</s:assert>
             <s:assert test="precincts = 'no'">2B-10: File contains precincts, which it shouldn't.</s:assert>
             <s:assert test="codingBypass = 'yes'">2B-12: Coding bypass should be enabled.</s:assert>
             <s:assert test="sop = 'yes'">2B-14: Should have start of packet (SOP) marker segments.</s:assert>
             <s:assert test="eph = 'yes'">2B-15: Should have end of packet header (EPH) marker segments.</s:assert>
             <s:assert test="segmentationSymbols = 'yes'">2B-16: Should have segmentation symbols.</s:assert>
-            <s:assert test="order = 'RPCL'">2B-7: Should have progression order RPCL</s:assert>
+	    <s:assert test="order = 'RPCL'">2B-7: Should have progression order RPCL</s:assert> -->
         </s:rule>
 
         <!-- Tile size tests + encoding-->
