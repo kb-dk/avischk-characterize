@@ -10,6 +10,8 @@ import datetime
 import sys
 import subprocess
 from lxml import etree
+import argparse
+import requests
 
 config = ConfigParser.RawConfigParser()
 config.read("avischk-characterize-config.cfg")
@@ -21,8 +23,12 @@ dbpassword = config.get("db-config", "password")
 
 
 def getFilesToCharacterize(avisid, format_type, tool):
-    sql = """SELECT orig_relpath FROM (SELECT orig_relpath, tool FROM newspaperarchive LEFT JOIN characterisation_info USING (orig_relpath) 
-             WHERE characterisation_info.orig_relpath IS NULL AND avisid = %s AND format_type = %s) AS foo WHERE foo.tool IS NULL OR foo.tool != %s"""
+    #sql = """SELECT orig_relpath FROM (SELECT orig_relpath, tool FROM newspaperarchive LEFT JOIN characterisation_info USING (orig_relpath) 
+    #         WHERE characterisation_info.orig_relpath IS NULL AND avisid = %s AND format_type = %s) AS foo WHERE foo.tool IS NULL OR foo.tool != %s"""
+    #sql = """SELECT orig_relpath FROM (SELECT orig_relpath, tool FROM newspaperarchive LEFT JOIN characterisation_info USING (orig_relpath) 
+    #         WHERE characterisation_info.orig_relpath IS NULL AND avisid = %s AND format_type = %s) AS foo WHERE foo.tool IS NULL OR foo.tool != %s limit 2"""
+    sql  ="""SELECT orig_relpath FROM newspaperarchive WHERE avisid = %s AND format_type = %s AND NOT EXISTS
+            (SELECT orig_relpath FROM characterisation_info WHERE characterisation_info.orig_relpath = newspaperarchive.orig_relpath AND tool = %s)"""
     files = []
     conn = None
     try:
@@ -43,15 +49,15 @@ def getFilesToCharacterize(avisid, format_type, tool):
     return files
 
 
-def storeInDB(orig_relpath, tool, tool_output, status):
-    sql = """INSERT INTO characterisation_info(orig_relpath, tool, characterisation_date, tool_output, status) VALUES
-            (%s, %s, now(), %s, %s);"""
+def storeInDB(orig_relpath, tool, tool_output, status, validation_output=""):
+    sql = """INSERT INTO characterisation_info(orig_relpath, tool, characterisation_date, tool_output, status, validation_output) VALUES
+            (%s, %s, now(), %s, %s, %s);"""
 
     conn = None
     try:
         conn = psycopg2.connect(host=dbhost, database=dbname, user=dbuser, password=dbpassword)
         cursor = conn.cursor()
-        cursor.execute(sql, (orig_relpath, tool, tool_output, status))
+        cursor.execute(sql, (orig_relpath, tool, tool_output, status, validation_output))
         conn.commit()
         cursor.close()
     except (Exception) as error:
@@ -59,6 +65,9 @@ def storeInDB(orig_relpath, tool, tool_output, status):
     finally:
         if conn is not None:
             conn.close()
+
+def getFilePath(f):
+    return '/digitape/samba-links/Avisarkiver_eksterne/' + f
 
 def run_jpylyzer(filePath):
     output = []
@@ -89,14 +98,13 @@ def validate_jpylyzer_characterization(output):
         return "valid"
     else:
         return "invalid"
-    
-
-def run_characterize():
+   
+def characterize_jp2k(avisid):
     tool = 'jpylyzer'
-    files = getFilesToCharacterize('boersen', 'jp2', tool)
-    
+    files = getFilesToCharacterize(avisid, 'jp2', tool)
+
     for f in files:
-        filePath = '/digitape/samba-links/Avisarkiver_eksterne/' + f
+        filePath = getFilePath(f)
 
         out = run_jpylyzer(filePath)
         outstr = unicode("".join(out), 'utf-8')
@@ -105,6 +113,157 @@ def run_characterize():
         print f
         print status
         storeInDB(f, tool, outstr, status)
+
+def validate_verapdf_output(output):
+    errors = []
+    rejected = False
+    validity = "good question"
+
+    schematronFile = open("sb-verapdf-checks.sch", "r")
+    sct_doc = etree.parse(schematronFile)
+    schematron = etree.Schematron(sct_doc)
+    schematronFile.close()
+    xml = StringIO.StringIO(output)
+
+    doc = etree.parse(xml)
+    valid = schematron.validate(doc)
+
+    if not valid:
+        for err in schematron.error_log:
+            errors.append(err.message)
+        rejected = True
+
+    print validity
+
+    schematronFile = open("sb-verapdf-manual-checks.sch", "r")
+    sct_doc = etree.parse(schematronFile)
+    schematron_manual = etree.Schematron(sct_doc)
+    schematronFile.close()
+
+    valid = schematron_manual.validate(doc)
+
+    if rejected:
+        validity = "invalid"
+    elif valid:
+        validity = "valid"
+    else:
+        validity = "manual control"
+        for err in schematron_manual.error_log:
+            errors.append(err.message)
+    
+    return validity, errors
+
+
+
+def run_verapdf(filePath):
+    url = "http://achernar:9023/api/validate/1b"
+    files = {'file': ('file', open(filePath, 'rb'), 'application/pdf')}
+    headers = {'Accept': 'application/xml'}
+ 
+    req = requests.post(url, files=files, headers=headers)
+    resp = req.text
+    return resp
+
+
+def run_pdfinfo(filePath):
+    output = []
+    characterize_command = ['pdfinfo-0.26', filePath]
+    try:
+        exProc = subprocess.Popen(characterize_command, bufsize=-1, stdout=subprocess.PIPE)
+        stdout = exProc.stdout
+        for line in stdout:
+            output.append(line)
+
+    except (subprocess.CalledProcessError) as err:
+        print err
+
+    return output
+
+def validate_pdfinfo_characterization(output):
+    status = 'invalid'
+
+    for line in output:
+        if 'Encrypted' in line:
+            enc = line.split(':')[1].strip()
+            if enc == 'no':
+                status = 'valid'
+                
+    return status
+
+
+def characterize_pdf(avisid):
+    print "enter characterize_pdf"
+    tool = 'pdfinfo'
+    files = getFilesToCharacterize(avisid, 'pdf', tool)
+
+    for f in files:
+        filePath = getFilePath(f)
+        out = run_pdfinfo(filePath)
+        outstr = unicode("".join(out), 'utf-8')
+        status = validate_pdfinfo_characterization(out)
+        print f 
+        print status
+        storeInDB(f, tool, outstr, status)
+    
+    print "start verapdf characteriztion"
+    tool = 'verapdf'
+    files = getFilesToCharacterize(avisid, 'pdf', tool)
+
+    for f in files:
+        filePath = getFilePath(f)
+        out = run_verapdf(filePath)
+        status, errors = validate_verapdf_output(out)
+        tool_output = "".join(errors)
+        print f 
+        print status
+        storeInDB(f, tool, out, status, tool_output)
+
+
+def characterize_tiff(avisid):
+    tool = 'tiff-something'
+    files = getFilesToCharacterize(avisid, 'tiff', tool)
+
+    print len(files)
+    print "not implemented"
+    exit
+
+def characterize_jpg(avisid):
+    tool = 'graphicsmagick-something'
+    files = getFilesToCharacterize(avisid, 'jpg', tool)
+
+    print len(files)
+    print "not implemented"
+    exit
+
+def parse_arguments():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("avisid", help="The id of the newspaper")
+    parser.add_argument("format", help="Format type to characterize: jp2, pdf, tiff, jpg")
+    args = parser.parse_args()
+
+    avisid = args.avisid
+    format_type = args.format
+
+    return avisid, format_type
+
+def run_characterize():
+   
+    avisid, format_type = parse_arguments()
+    
+    print avisid
+    print format_type
+
+    if format_type == 'jp2':
+        characterize_jp2k(avisid)
+    elif format_type == 'pdf':
+        characterize_pdf(avisid)
+    elif format_type == 'tiff':
+        characterize_tiff(avisid)
+    elif format_type == 'jpg':
+        characterize_jpg(avisid)
+    else:
+        print("Unknown/unhandled format %s" %(format_type))
 
 
 
