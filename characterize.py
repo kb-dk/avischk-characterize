@@ -3,7 +3,7 @@
 
 import ConfigParser
 import os
-#import io
+import time
 import StringIO
 import psycopg2
 import datetime
@@ -164,6 +164,15 @@ def run_verapdf(filePath):
     resp = req.text
     return resp
 
+def restart_verapdf():
+    print "Restarting verapdf service ..."
+    retcode = subprocess.call(['/home/avischk/bin/verapdf-rest', 'stop'])
+    print "Verapdf stopped"
+    retcode = subprocess.call(['/home/avischk/bin/verapdf-rest', 'start'])
+    print "Verapdf started"
+    time.sleep(10)
+
+
 
 def run_pdfinfo(filePath):
     output = []
@@ -190,6 +199,43 @@ def validate_pdfinfo_characterization(output):
                 
     return status
 
+def run_jhove_tiff(filePath):
+    output = []
+    characterize_command = ['jhove', '-m', 'TIFF-hul', '-h', 'xml', filePath]
+
+    try:
+        exProc = subprocess.Popen(characterize_command, bufsize=-1, stdout=subprocess.PIPE)
+        stdout = exProc.stdout
+        for line in stdout:
+            output.append(line)
+
+    except (subprocess.CalledProcessError) as err:
+        print err
+
+    return output
+
+def validate_jhove_pdf_characterization(output):
+    errors = []
+    validity = "good question"
+
+    schematronFile = open("sb-jhove-tiff-checks.sch", "r")
+    sct_doc = etree.parse(schematronFile)
+    schematron = etree.Schematron(sct_doc)
+    schematronFile.close()
+    xml = StringIO.StringIO(output)
+
+    doc = etree.parse(xml)
+    valid = schematron.validate(doc)
+
+    if valid:
+        validity = "valid"
+    else:
+        validity = "invalid"
+        for err in schematron_manual.error_log:
+            errors.append(err.message)
+
+    return validity, errors
+
 
 def characterize_pdf(avisid):
     print "enter characterize_pdf"
@@ -208,24 +254,36 @@ def characterize_pdf(avisid):
     print "start verapdf characteriztion"
     tool = 'verapdf'
     files = getFilesToCharacterize(avisid, 'pdf', tool)
-
+    
+    cnt = 0
     for f in files:
+        print f
         filePath = getFilePath(f)
         out = run_verapdf(filePath)
         status, errors = validate_verapdf_output(out)
         tool_output = "".join(errors)
-        print f 
         print status
         storeInDB(f, tool, out, status, tool_output)
+        cnt+=1
+        if cnt > 3800:
+            restart_verapdf()
+            cnt = 0
 
 
 def characterize_tiff(avisid):
-    tool = 'tiff-something'
+    tool = 'jhove'
     files = getFilesToCharacterize(avisid, 'tiff', tool)
 
-    print len(files)
-    print "not implemented"
-    exit
+    for f in files:
+        filePath = getFilePath(f)
+        out = run_jhove_tiff(filePath)
+        outstr = unicode("".join(out), 'utf-8')
+        status, errors = validate_jhove_pdf_characterization(out)
+        tool_output = "".join(errors)
+        print f
+        print status
+        storeInDB(f, tool, outstr, status, tool_output)
+
 
 def characterize_jpg(avisid):
     tool = 'graphicsmagick-something'
