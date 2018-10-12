@@ -23,11 +23,9 @@ dbpassword = config.get("db-config", "password")
 
 
 def getFilesToCharacterize(avisid, format_type, tool):
-    #sql = """SELECT orig_relpath FROM (SELECT orig_relpath, tool FROM newspaperarchive LEFT JOIN characterisation_info USING (orig_relpath) 
-    #         WHERE characterisation_info.orig_relpath IS NULL AND avisid = %s AND format_type = %s) AS foo WHERE foo.tool IS NULL OR foo.tool != %s"""
-    #sql = """SELECT orig_relpath FROM (SELECT orig_relpath, tool FROM newspaperarchive LEFT JOIN characterisation_info USING (orig_relpath) 
-    #         WHERE characterisation_info.orig_relpath IS NULL AND avisid = %s AND format_type = %s) AS foo WHERE foo.tool IS NULL OR foo.tool != %s limit 2"""
-    sql  ="""SELECT orig_relpath FROM newspaperarchive WHERE avisid = %s AND format_type = %s AND NOT EXISTS
+#    sql  ="""SELECT orig_relpath FROM newspaperarchive WHERE avisid = %s AND format_type = %s AND primary_copy = true AND NOT EXISTS
+#            (SELECT orig_relpath FROM characterisation_info WHERE characterisation_info.orig_relpath = newspaperarchive.orig_relpath AND tool = %s) limit 2"""
+    sql  ="""SELECT orig_relpath FROM newspaperarchive WHERE avisid = %s AND format_type = %s AND primary_copy = true AND NOT EXISTS
             (SELECT orig_relpath FROM characterisation_info WHERE characterisation_info.orig_relpath = newspaperarchive.orig_relpath AND tool = %s)"""
     files = []
     conn = None
@@ -212,9 +210,9 @@ def run_jhove_tiff(filePath):
     except (subprocess.CalledProcessError) as err:
         print err
 
-    return output
+    return "".join(output)
 
-def validate_jhove_pdf_characterization(output):
+def validate_jhove_tiff_characterization(output):
     errors = []
     validity = "good question"
 
@@ -231,7 +229,7 @@ def validate_jhove_pdf_characterization(output):
         validity = "valid"
     else:
         validity = "invalid"
-        for err in schematron_manual.error_log:
+        for err in schematron.error_log:
             errors.append(err.message)
 
     return validity, errors
@@ -276,11 +274,11 @@ def characterize_tiff(avisid):
 
     for f in files:
         filePath = getFilePath(f)
+        print f
         out = run_jhove_tiff(filePath)
         outstr = unicode("".join(out), 'utf-8')
-        status, errors = validate_jhove_pdf_characterization(out)
+        status, errors = validate_jhove_tiff_characterization(out)
         tool_output = "".join(errors)
-        print f
         print status
         storeInDB(f, tool, outstr, status, tool_output)
 

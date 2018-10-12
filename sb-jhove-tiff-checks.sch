@@ -79,14 +79,14 @@
 
         <!-- Dismissal clauses tests -->
 	<s:rule context="/jhove:jhove/jhove:repInfo/jhove:status">
-		<s:assert test="starts-with(., 'Well-formed')">TIFF file must be well-formed.</s:assert>
+		<s:assert test="starts-with(., 'Well-Formed')">TIFF file must be well-formed.</s:assert>
 	</s:rule>
 	<s:rule context="//mix:mix/mix:BasicDigitalObjectInformation/mix:Compression">
 		<s:assert test="mix:compressionScheme = 'LZW'">Compression scheme should be LZW.</s:assert>
 	</s:rule>
 	<s:rule context="//mix:mix/mix:BasicImageInformation/mix:BasicImageCharacteristics">
-		<s:assert test="mix:imageWidth = '1500'">Width should at least be 1500.</s:assert>
-		<s:assert test="mix:imageHeight = '2500'">Height should be at least 2500.</s:assert>
+		<s:assert test="mix:imageWidth > '1500'">Width should at least be 1500.</s:assert>
+		<s:assert test="mix:imageHeight > '2500'">Height should be at least 2500.</s:assert>
 	</s:rule>
 	<s:rule context="//mix:mix/mix:BasicImageInformation/mix:BasicImageCharacteristics/mix:PhotometricInterpretation">
             <s:assert test="mix:colorSpace = 'RGB'">Color space should be RGB.</s:assert>
