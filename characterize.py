@@ -22,11 +22,20 @@ dbhost = config.get("db-config", "host")
 dbpassword = config.get("db-config", "password")
 
 
-def getFilesToCharacterize(avisid, format_type, tool):
+def getFilesToCharacterize(avisid, format_type, tool, offset=None, limit=None):
 #    sql  ="""SELECT orig_relpath FROM newspaperarchive WHERE avisid = %s AND format_type = %s AND primary_copy = true AND NOT EXISTS
 #            (SELECT orig_relpath FROM characterisation_info WHERE characterisation_info.orig_relpath = newspaperarchive.orig_relpath AND tool = %s) limit 2"""
     sql  ="""SELECT orig_relpath FROM newspaperarchive WHERE avisid = %s AND format_type = %s AND primary_copy = true AND NOT EXISTS
             (SELECT orig_relpath FROM characterisation_info WHERE characterisation_info.orig_relpath = newspaperarchive.orig_relpath AND tool = %s)"""
+
+    if offset:
+        sql = sql + " OFFSET " + offset
+
+    if limit:
+        sql = sql + " LIMIT " + limit
+
+    print sql
+
     files = []
     conn = None
     try:
@@ -235,10 +244,10 @@ def validate_jhove_tiff_characterization(output):
     return validity, errors
 
 
-def characterize_pdf(avisid):
+def characterize_pdf(avisid, offset, limit):
     print "enter characterize_pdf"
     tool = 'pdfinfo'
-    files = getFilesToCharacterize(avisid, 'pdf', tool)
+    files = getFilesToCharacterize(avisid, 'pdf', tool, offset, limit)
 
     for f in files:
         filePath = getFilePath(f)
@@ -251,20 +260,25 @@ def characterize_pdf(avisid):
     
     print "start verapdf characteriztion"
     tool = 'verapdf'
-    files = getFilesToCharacterize(avisid, 'pdf', tool)
+    files = getFilesToCharacterize(avisid, 'pdf', tool, offset, limit)
     
     cnt = 0
     for f in files:
         print f
         filePath = getFilePath(f)
         out = run_verapdf(filePath)
-        status, errors = validate_verapdf_output(out)
-        tool_output = "".join(errors)
+        if out == "File does not appear to be a PDF.":
+            status = 'invalid'
+            errors = 'python parse problem'
+        else:
+            status, errors = validate_verapdf_output(out)
+            tool_output = "".join(errors)
+        
         print status
         storeInDB(f, tool, out, status, tool_output)
         cnt+=1
         if cnt > 3800:
-            restart_verapdf()
+            #restart_verapdf()
             cnt = 0
 
 
@@ -296,24 +310,30 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("avisid", help="The id of the newspaper")
     parser.add_argument("format", help="Format type to characterize: jp2, pdf, tiff, jpg")
+    parser.add_argument("--count", default=-1, help="Number of pages to process")
+    parser.add_argument("--offset", default=-1, help="Number of pages to skip")
     args = parser.parse_args()
 
     avisid = args.avisid
     format_type = args.format
+    offset = args.offset
+    count = args.count
 
-    return avisid, format_type
+    return avisid, format_type, offset, count
 
 def run_characterize():
    
-    avisid, format_type = parse_arguments()
+    avisid, format_type, offset, count = parse_arguments()
     
     print avisid
     print format_type
-
+    print offset
+    print count
+    
     if format_type == 'jp2':
         characterize_jp2k(avisid)
     elif format_type == 'pdf':
-        characterize_pdf(avisid)
+        characterize_pdf(avisid, offset, count)
     elif format_type == 'tiff':
         characterize_tiff(avisid)
     elif format_type == 'jpg':
